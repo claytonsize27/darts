@@ -1,32 +1,32 @@
-// Create an instance of our final game logic
+// We'll assume you're using the final "darts_scoring_game.js" logic that handles multi-overtime, etc.
 const game = new DartsGame();
 
-// Turn-based flow
+// Track the current player's turn index
 let currentPlayerIndex = 0;
 
-// Redemption state
+// Flags + arrays for redemption
 let redemptionInProgress = false;
-let redemptionShots = [];         // Collects one shot each from redemption players
-let redemptionPlayersLeft = [];   // The set of players who need a redemption turn
+let redemptionShots = [];
+let redemptionPlayersLeft = [];
 
-// Helper to set UI messages
+// Helper to set a status message
 function setStatusMessage(msg) {
   const statusEl = document.getElementById("statusMessage");
   statusEl.textContent = msg || "";
 }
 
-// Add a player
+// Adding a new player
 function addPlayer() {
-  const playerNameInput = document.getElementById("playerName");
-  const name = playerNameInput.value.trim();
-  if (name) {
-    game.addPlayer(name);
+  const nameEl = document.getElementById("playerName");
+  const playerName = nameEl.value.trim();
+  if (playerName) {
+    game.addPlayer(playerName);
+    nameEl.value = "";
     updatePlayerList();
-    playerNameInput.value = "";
   }
 }
 
-// Rebuild the visible list of players
+// Rebuild the list of players
 function updatePlayerList() {
   const playerList = document.getElementById("playerList");
   playerList.innerHTML = "";
@@ -37,8 +37,8 @@ function updatePlayerList() {
     playerList.appendChild(li);
   });
 
+  // If we have at least 2 players, show the game section
   if (game.players.length > 1) {
-    // Show main game UI
     document.getElementById("gameSection").style.display = "block";
     rebuildScoreboard();
     currentPlayerIndex = 0;
@@ -59,21 +59,21 @@ function rebuildScoreboard() {
     playerNameDiv.classList.add("player-name");
     playerNameDiv.textContent = player;
 
-    const scoreDiv = document.createElement("div");
-    scoreDiv.classList.add("current-score");
-    scoreDiv.textContent = game.scores[player];
+    const currentScoreDiv = document.createElement("div");
+    currentScoreDiv.classList.add("current-score");
+    currentScoreDiv.textContent = game.scores[player];
 
     row.appendChild(playerNameDiv);
-    row.appendChild(scoreDiv);
+    row.appendChild(currentScoreDiv);
     scoreboardDiv.appendChild(row);
   });
 }
 
-// Determine whose turn it is
+// Update the displayed current player
 function updateCurrentPlayerDisplay() {
-  const currentPlayerSpan = document.getElementById("currentPlayer");
+  const currentSpan = document.getElementById("currentPlayer");
+
   if (redemptionInProgress) {
-    // If no more redemption players left, finalize
     if (redemptionPlayersLeft.length === 0) {
       finalizeRedemptionShots();
       return;
@@ -83,64 +83,61 @@ function updateCurrentPlayerDisplay() {
       return;
     }
     const p = redemptionPlayersLeft[currentPlayerIndex];
-    currentPlayerSpan.textContent = p;
+    currentSpan.textContent = p;
   } else {
-    // Normal flow
     if (currentPlayerIndex >= game.players.length) {
       currentPlayerIndex = 0;
     }
-    currentPlayerSpan.textContent = game.players[currentPlayerIndex];
+    currentSpan.textContent = game.players[currentPlayerIndex];
   }
 }
 
-// Main entry point when a user enters a score
+// Called when the user clicks "Enter Score"
 function submitScore() {
-  // If a final winner has been declared (and not in redemption), do nothing
+  // If there's already a final winner (and we're not in redemption), do nothing
   if (game.getWinner() && !redemptionInProgress) {
-    setStatusMessage(`Game over. ${game.getWinner()} was the final winner.`);
+    setStatusMessage(`Game over. ${game.getWinner()} was already declared winner.`);
     return;
   }
 
-  const inputEl = document.getElementById("currentScoreInput");
-  const enteredScore = parseInt(inputEl.value, 10) || 0;
-  inputEl.value = "";
+  const scoreInput = document.getElementById("currentScoreInput");
+  const enteredScore = parseInt(scoreInput.value, 10) || 0;
+  scoreInput.value = "";
 
   if (redemptionInProgress) {
-    // We're collecting one redemption shot per redemption player
     handleRedemptionShot(enteredScore);
   } else {
-    // Normal scoring flow
-    normalFlowScore(enteredScore);
+    handleNormalTurn(enteredScore);
   }
 }
 
-// Normal (non-redemption) single-turn flow
-function normalFlowScore(enteredScore) {
+// Normal turn (non-redemption)
+function handleNormalTurn(enteredScore) {
   const currentPlayerName = game.players[currentPlayerIndex];
   const result = game.recordScore(currentPlayerName, enteredScore);
 
   if (result === "Bust") {
     setStatusMessage(`${currentPlayerName} busted. Score stays at ${game.scores[currentPlayerName]}.`);
   } else if (result === "Redemption Round Begins") {
-    setStatusMessage(`${currentPlayerName} reached ${game.targetScore}! Redemption for others...`);
+    setStatusMessage(`${currentPlayerName} reached ${game.targetScore}! Redemption for others in regulation...`);
     startRedemption();
     rebuildScoreboard();
-    return; // stop here
+    return;
   } else if (result === "Overtime Redemption Round Begins") {
-    setStatusMessage(`${currentPlayerName} reached ${game.targetScore} in overtime! Redemption for others...`);
+    setStatusMessage(`${currentPlayerName} reached ${game.targetScore} in Overtime! Redemption for others...`);
     startRedemption();
     rebuildScoreboard();
-    return; // stop here
+    return;
   }
 
-  // If a single winner is declared (no tie), finalize
+  // If there's a single final winner (no tie), display
   if (game.getWinner()) {
     setStatusMessage(`Winner: ${game.getWinner()}. Game Over.`);
     rebuildScoreboard();
     return;
   }
 
-  // Otherwise continue normal turn
+  // Otherwise normal next turn
   rebuildScoreboard();
   currentPlayerIndex++;
   if (currentPlayerIndex >= game.players.length) {
@@ -149,69 +146,76 @@ function normalFlowScore(enteredScore) {
   updateCurrentPlayerDisplay();
 }
 
-// Start redemption: all players in game.redemptionPlayers get exactly one shot
+// Start redemption for all players in game.redemptionPlayers
 function startRedemption() {
   redemptionInProgress = true;
   redemptionShots = [];
-  redemptionPlayersLeft = [...game.redemptionPlayers]; // copy
+  redemptionPlayersLeft = [...game.redemptionPlayers];
   currentPlayerIndex = 0;
   updateCurrentPlayerDisplay();
 }
 
-// Handle exactly one redemption shot for the current redemption player
+// Each redemption player gets exactly one shot
 function handleRedemptionShot(enteredScore) {
   if (redemptionPlayersLeft.length === 0) {
-    // no more redemption players
     finalizeRedemptionShots();
     return;
   }
-  const currentRedemptionPlayer = redemptionPlayersLeft[currentPlayerIndex];
+  const currentP = redemptionPlayersLeft[currentPlayerIndex];
 
-  // Record the shot in an array
+  // Collect the shot
   redemptionShots.push({
-    player: currentRedemptionPlayer,
+    player: currentP,
     score: enteredScore,
   });
+  setStatusMessage(`${currentP} tries redemption with ${enteredScore} points...`);
 
-  setStatusMessage(`${currentRedemptionPlayer} tries redemption with ${enteredScore} points.`);
-
-  // Move to the next redemption player (no second tries)
+  // Move to next redemption player
   currentPlayerIndex++;
   if (currentPlayerIndex >= redemptionPlayersLeft.length) {
-    // Everyone had exactly one redemption shot
     finalizeRedemptionShots();
   } else {
     updateCurrentPlayerDisplay();
   }
 }
 
-// Once all redemption players have one shot, call processRedemption
+// This is where we fix the bug: If the redemption player fails to tie, we finalize with the existing winner.
 function finalizeRedemptionShots() {
   redemptionInProgress = false;
   currentPlayerIndex = 0;
 
-  if (redemptionShots.length > 0) {
-    // Pass all redemptionShots in a single call to processRedemption
-    const redemptionResult = game.processRedemption(redemptionShots);
-    setStatusMessage(redemptionResult);
-  } else {
-    setStatusMessage(`No redemption shots were taken.`);
+  // If no shots => no redemption
+  if (redemptionShots.length === 0) {
+    setStatusMessage(`No redemption shots taken.`);
+    return;
   }
+
+  // Now call processRedemption
+  const redemptionResult = game.processRedemption(redemptionShots);
+  setStatusMessage(redemptionResult);
 
   redemptionShots = [];
   redemptionPlayersLeft = [];
 
-  // Refresh scoreboard with updated totals
+  // Rebuild scoreboard with updated totals
   rebuildScoreboard();
 
-  // Check if we have a final winner or if we are in overtime
-  if (!game.inOvertime && game.getWinner()) {
-    // No tie => original winner stands
-    setStatusMessage(`Final Winner: ${game.getWinner()}. Game Over.`);
-  } else if (game.inOvertime) {
-    // multiple advanced => next turn continues with the new target
-    setStatusMessage(`Overtime in progress! Target = ${game.targetScore}. Players = ${game.players.join(", ")}`);
+  // CASE 1: If the return string is something like "Winner: Player1"
+  // Then we finalize immediately with no tie
+  if (redemptionResult.startsWith("Winner: ")) {
+    // Example: "Winner: Alice"
+    // This means the existing winner stands, no tie was found
+    setStatusMessage(`${redemptionResult}. Game Over.`);
+    return;
   }
 
+  // CASE 2: If the return string is "Players advancing to 401" (or new target),
+  // we are in OVERTIME => multi players tied
+  if (game.inOvertime && !game.getWinner()) {
+    // We have advanced to next target
+    setStatusMessage(`Overtime in progress! Target now ${game.targetScore}. Players in game: ${game.players.join(", ")}`);
+  }
+
+  // Resume normal flow
   updateCurrentPlayerDisplay();
 }
